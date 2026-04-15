@@ -217,6 +217,14 @@ class Float8LinearConverter(QuantizationConverter):
             precompute_float8_dynamic_scale_for_fsdp(m)
 
 
+# Tyro uses __name__ (not __qualname__) to generate union subcommand discriminants.
+# Both Config inner classes would otherwise share __name__ = 'Config', causing a
+# collision when both appear together in the converters list. Setting __name__ to
+# __qualname__ makes each class name unique ('Float8LinearConverter.Config' vs
+# 'Float8GroupedMMConverter.Config') so tyro can distinguish them.
+Float8LinearConverter.Config.__name__ = Float8LinearConverter.Config.__qualname__
+
+
 class Float8GroupedMMConverter(QuantizationConverter):
     @dataclass(kw_only=True, slots=True)
     class Config(QuantizationConverter.Config):
@@ -298,6 +306,9 @@ class Float8GroupedMMConverter(QuantizationConverter):
 
     def post_optimizer_hook(self, model: nn.Module | list[nn.Module]):
         pass
+
+
+Float8GroupedMMConverter.Config.__name__ = Float8GroupedMMConverter.Config.__qualname__
 
 
 def find_float8_linear_config(
