@@ -99,8 +99,12 @@ def apply_compile_sparse(
                         if attr_name == "experts":
                             # NOTE: We don't compile token dispatch and token combine due to an issue on B200:
                             # https://github.com/pytorch/torchtitan/issues/1940
+                            # DM: edit from clowman on PR #2781
+                            torch.compiler.disable(submod)
                             continue
                         submod.compile(backend=compile_config.backend, fullgraph=True)
+                    # DM: edit from clowman on PR #2781
+                    moe.compile(backend=compile_config.backend, fullgraph=False)
                 else:
                     submod.compile(backend=compile_config.backend, fullgraph=True)
         else:

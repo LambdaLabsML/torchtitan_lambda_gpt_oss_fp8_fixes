@@ -6,9 +6,13 @@
 
 
 import torch.nn as nn
-from torch.distributed.tensor import DeviceMesh, distribute_tensor, Replicate, Shard
+from torch.distributed.tensor import DeviceMesh, distribute_tensor, DTensor, Replicate, Shard
 
-from torchtitan.distributed.expert_parallel import ExpertTensorParallel, TensorParallel
+from torchtitan.distributed.expert_parallel import (
+    DeepEPExpertParallel,
+    ExpertTensorParallel,
+    TensorParallel,
+)
 
 
 # implementation of Tensor Parallel for the GroupedExperts in MoE
@@ -69,3 +73,51 @@ class GptossExpertTensorParallel(ExpertTensorParallel):
                 distribute_tensor(mod.mlp2_bias, device_mesh, [Shard(0), Replicate()])
             ),
         )  # Replicate
+
+
+class GptossDeepEPExpertParallel(DeepEPExpertParallel):
+    """DeepEPExpertParallel adapted for GptOssGroupedExperts.
+
+    GptOssGroupedExperts uses mlp1_weight / mlp2_weight instead of w1 / w2 / w3.
+    This subclass overrides _token_dispatch to derive num_local_experts from
+    mlp1_weight rather than w1.  All other dispatch/combine logic is inherited
+    from DeepEPExpertParallel unchanged.
+    """
+
+    def _token_dispatch(self, mod: nn.Module, inputs: tuple, device_mesh: DeviceMesh):
+        hidden_states, _, selected_experts_indices, top_scores, num_experts = inputs
+        # GptOssGroupedExperts uses mlp1_weight; DeepEPExpertParallel uses w1.
+        if isinstance(mod.mlp1_weight, DTensor):
+            num_local_experts = mod.mlp1_weight.to_local().shape[0]
+        else:
+            num_local_experts = mod.mlp1_weight.shape[0]
+        ep_group = device_mesh.get_group()
+
+        if self.comm_backend == "hybridep":
+            from torchtitan.distributed.deepep.hybridep import dispatch_tokens
+
+            hidden_states, tokens_per_expert, self._state = dispatch_tokens(
+                hidden_states,
+                selected_experts_indices,
+                top_scores,
+                num_local_experts,
+                num_experts,
+                ep_group,
+                score_before_experts=self.score_before_experts,
+                non_blocking_expert_capacity_factor=self.hybridep_non_blocking_expert_capacity_factor,
+                pad_multiple=self.pad_multiple,
+            )
+        else:
+            from torchtitan.distributed.deepep.deepep import dispatch_tokens
+
+            hidden_states, tokens_per_expert, self._state = dispatch_tokens(
+                hidden_states,
+                selected_experts_indices,
+                top_scores,
+                num_local_experts,
+                num_experts,
+                ep_group,
+                score_before_experts=self.score_before_experts,
+            )
+
+        return hidden_states, tokens_per_expert

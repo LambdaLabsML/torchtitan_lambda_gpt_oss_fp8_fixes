@@ -368,3 +368,149 @@ def gpt_oss_20b_dense_fp8_only() -> Trainer.Config:
         activation_checkpoint=ActivationCheckpointConfig(mode="full"),
         compile=CompileConfig(enable=True, components=["model", "loss"]),
     )
+
+
+def gpt_oss_20b_ga2() -> Trainer.Config:
+    """Dense-layer-only FP8 + compile — the best FP8 configuration.
+
+    Applies Float8LinearConverter to all linear layers (attention + dense MLP)
+    except the router gate (float32 for routing stability) and the output projection
+    (excluding output avoids memory overhead from FP8 all-gather on the large vocab
+    weight). Expert weights (GptOssGroupedExperts) stay in BF16.
+
+    Result: 195.7 TFLOPs, 57.15 GiB — beats BF16+compile (194.1 TFLOPs, 58.2 GiB)
+    on both metrics. Adding Float8GroupedMMConverter for expert weights causes graph
+    breaks that regress TFLOPs from 195.7 to ~159 and increase memory to ~73 GiB.
+    """
+    return Trainer.Config(
+        hf_assets_path="./assets/hf/gpt-oss-20b",
+        model_spec=model_registry("20b"),
+        dataloader=HuggingFaceTextDataLoader.Config(dataset="c4"),
+        optimizer=OptimizersContainer.Config(lr=8e-4),
+        model_converters=ModelConvertersContainer.Config(
+            converters=[
+                Float8LinearConverter.Config(
+                    enable_fsdp_float8_all_gather=True,
+                    precompute_float8_dynamic_scale_for_fsdp=True,
+                    filter_fqns=["router.gate", "output"],
+                ),
+            ],
+        ),
+        lr_scheduler=LRSchedulersContainer.Config(
+            warmup_steps=2000,
+            decay_ratio=0.8,
+            decay_type="cosine",
+            min_lr_factor=0.1,
+        ),
+        training=TrainingConfig(
+            global_batch_size=64,
+            local_batch_size=4,
+            seq_len=8192,
+            steps=10000,
+        ),
+        parallelism=ParallelismConfig(
+            expert_parallel_degree=1,
+            expert_tensor_parallel_degree=1,
+        ),
+        checkpoint=CheckpointManager.Config(interval=500),
+        activation_checkpoint=ActivationCheckpointConfig(mode="full"),
+        compile=CompileConfig(enable=True, components=["model", "loss"]),
+    )
+
+
+def gpt_oss_20b_mixed_precision_reduce_bf16() -> Trainer.Config:
+    """Dense-layer-only FP8 + compile — the best FP8 configuration.
+
+    Applies Float8LinearConverter to all linear layers (attention + dense MLP)
+    except the router gate (float32 for routing stability) and the output projection
+    (excluding output avoids memory overhead from FP8 all-gather on the large vocab
+    weight). Expert weights (GptOssGroupedExperts) stay in BF16.
+
+    Result: 195.7 TFLOPs, 57.15 GiB — beats BF16+compile (194.1 TFLOPs, 58.2 GiB)
+    on both metrics. Adding Float8GroupedMMConverter for expert weights causes graph
+    breaks that regress TFLOPs from 195.7 to ~159 and increase memory to ~73 GiB.
+    """
+    return Trainer.Config(
+        hf_assets_path="./assets/hf/gpt-oss-20b",
+        model_spec=model_registry("20b"),
+        dataloader=HuggingFaceTextDataLoader.Config(dataset="c4"),
+        optimizer=OptimizersContainer.Config(lr=8e-4),
+        model_converters=ModelConvertersContainer.Config(
+            converters=[
+                Float8LinearConverter.Config(
+                    enable_fsdp_float8_all_gather=True,
+                    precompute_float8_dynamic_scale_for_fsdp=True,
+                    filter_fqns=["router.gate", "output"],
+                ),
+            ],
+        ),
+        lr_scheduler=LRSchedulersContainer.Config(
+            warmup_steps=2000,
+            decay_ratio=0.8,
+            decay_type="cosine",
+            min_lr_factor=0.1,
+        ),
+        training=TrainingConfig(
+            mixed_precision_reduce="bfloat16",
+            local_batch_size=4,
+            seq_len=8192,
+            steps=10000,
+        ),
+        parallelism=ParallelismConfig(
+            expert_parallel_degree=1,
+            expert_tensor_parallel_degree=1,
+        ),
+        checkpoint=CheckpointManager.Config(interval=500),
+        activation_checkpoint=ActivationCheckpointConfig(mode="full"),
+        compile=CompileConfig(enable=True, components=["model", "loss"]),
+    )
+
+
+def gpt_oss_20b_ep8() -> Trainer.Config:
+    """Dense-layer-only FP8 + compile + DeepEP (8-way expert parallelism).
+
+    Applies Float8LinearConverter to all linear layers (attention + dense MLP)
+    except the router gate (float32 for routing stability) and the output projection.
+    Expert weights (GptOssGroupedExperts) stay in BF16.
+
+    Uses DeepEP RDMA kernels for expert dispatch/combine instead of all-to-all.
+    DeepEP's combine runs asynchronously, overlapping with any shared-expert
+    compute (none in this model) before sync_combine() joins the streams.
+    """
+    return Trainer.Config(
+        hf_assets_path="./assets/hf/gpt-oss-20b",
+        model_spec=model_registry("20b"),
+        dataloader=HuggingFaceTextDataLoader.Config(dataset="c4"),
+        optimizer=OptimizersContainer.Config(lr=8e-4),
+        model_converters=ModelConvertersContainer.Config(
+            converters=[
+                Float8LinearConverter.Config(
+                    enable_fsdp_float8_all_gather=True,
+                    precompute_float8_dynamic_scale_for_fsdp=True,
+                    filter_fqns=["router.gate", "output"],
+                ),
+            ],
+        ),
+        lr_scheduler=LRSchedulersContainer.Config(
+            warmup_steps=2000,
+            decay_ratio=0.8,
+            decay_type="cosine",
+            min_lr_factor=0.1,
+        ),
+        training=TrainingConfig(
+            mixed_precision_reduce="bfloat16",
+            local_batch_size=4,
+            seq_len=8192,
+            steps=10000,
+        ),
+        parallelism=ParallelismConfig(
+            data_parallel_shard_degree=-1,
+            fsdp_reshard_after_forward="default",
+            expert_parallel_degree=8,
+            expert_tensor_parallel_degree=1,
+            expert_parallel_comm_backend="deepep",
+        ),
+        checkpoint=CheckpointManager.Config(interval=500),
+        activation_checkpoint=ActivationCheckpointConfig(mode="full"),
+        compile=CompileConfig(enable=True, components=["model", "loss"]),
+    )

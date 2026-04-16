@@ -33,4 +33,4 @@ torchrun \
   --master_port=29500 \
   -m torchtitan.train \
   --module gpt_oss \
-  --config gpt_oss_20b_dense_fp8_only
+  --config gpt_oss_20b_mixed_precision_reduce_bf16

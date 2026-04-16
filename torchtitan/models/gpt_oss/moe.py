@@ -319,3 +319,21 @@ class GptOssMoE(MoE):
         )
         # pyrefly: ignore [bad-assignment]
         self.experts = gptoss_experts_config.build()
+
+
+class GptOssDeepEPMoE(GptOssMoE):
+    """GptOss MoE variant that uses DeepEP expert-parallel communication.
+
+    Identical weights and initialization to GptOssMoE, but overrides forward()
+    to pass routing info through to experts so DeepEPExpertParallel hooks can
+    handle dispatch/combine via RDMA kernels instead of all-to-all collectives.
+
+    Instances are created by replacing the class on existing GptOssMoE modules
+    in parallelize_gptoss (see apply_moe_ep_tp), so no Config override is needed.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Import here so deep_ep library is only required when DeepEP is active.
+        from torchtitan.models.common.moe_deepep import DeepEPMoE
+
+        return DeepEPMoE.forward(self, x)

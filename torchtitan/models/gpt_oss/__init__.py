@@ -231,7 +231,7 @@ def _20b() -> GptOssModel.Config:
             hidden_dim=hidden_dim,
             num_experts=32,
             top_k=4,
-            score_before_experts=False,
+            score_before_experts=True,
             load_balance_coeff=1e-3,
         ),
         rope=RoPE.Config(
