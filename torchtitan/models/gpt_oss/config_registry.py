@@ -452,6 +452,7 @@ def gpt_oss_20b_mixed_precision_reduce_bf16() -> Trainer.Config:
         ),
         training=TrainingConfig(
             mixed_precision_reduce="bfloat16",
+            global_batch_size=64,
             local_batch_size=4,
             seq_len=8192,
             steps=10000,
@@ -461,7 +462,7 @@ def gpt_oss_20b_mixed_precision_reduce_bf16() -> Trainer.Config:
             expert_tensor_parallel_degree=1,
         ),
         checkpoint=CheckpointManager.Config(interval=500),
-        activation_checkpoint=ActivationCheckpointConfig(mode="full"),
+        activation_checkpoint=ActivationCheckpointConfig(mode="full", early_stop=True),
         compile=CompileConfig(enable=True, components=["model", "loss"]),
     )
 
